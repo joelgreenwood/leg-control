@@ -1,4 +1,8 @@
 
+/*  Angular velocity and positional control for a single stompy leg 
+
+*/
+
 #include "RunningAverage.h"
 RunningAverage hipSensorAverage(10);
 RunningAverage thighSensorAverage(10);
