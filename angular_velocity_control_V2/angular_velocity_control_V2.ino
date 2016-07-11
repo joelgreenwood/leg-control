@@ -1,6 +1,7 @@
 
 /*  Angular velocity and positional control for a single stompy leg 
-
+    This file publishes the current angles of the joints
+    It takes in three goal angles and moves the leg to those angles
 */
 
 #include "RunningAverage.h"
