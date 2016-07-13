@@ -5,19 +5,19 @@
 */
 
 #include "RunningAverage.h"
-RunningAverage hipSensorAverage(10);
-RunningAverage thighSensorAverage(10);
-RunningAverage kneeSensorAverage(10);
+RunningAverage hipSensorAverage(1000);
+RunningAverage thighSensorAverage(1000);
+RunningAverage kneeSensorAverage(1000);
 
 RunningAverage* sensorAverage[] ={&hipSensorAverage, &thighSensorAverage, &kneeSensorAverage};
 
-#include <PID_v1.h>
-double Setpoint, Input, Output;
+// #include <PID_v1.h>
+// double Setpoint, Input, Output;
 
-PID hipPID(&Input, &Output, &Setpoint, 2,0,0, DIRECT);
+//PID hipPID(&Input, &Output, &Setpoint, 2,0,0, DIRECT);
 
 float currentVelocity[3];
-float targetVelocity[] = {15, 15, 15}; // target velocity in degrees / millisecond 
+float targetVelocity[] = {15, 15, 15}; // target velocity in degrees / second
 unsigned long lastTime[3];
 unsigned long currentTime;
 unsigned long elapsedTime[3];
@@ -34,6 +34,19 @@ float bit_resolution = pow(2,10)-1;
 float PWM_percent[] = {45, 50, 50}; //PWM percentage to drive the solenoids at - this will translate into speed
 float PWM_value[] = {0, 0, 0};
 
+//set governor for max duty
+//cycle -- e.g. 40 would mean 40% of max valve open at full joystick movement
+float govP_thigh = 50;
+float govP_knee  =  50;
+float govP_hip   =  50;
+float* governor_percent[] = {&govP_knee, &govP_thigh, &govP_hip}; //percent of max duty cycle for PWM
+float governor[] = {410, 410, 410}; //these will be calculated below but I'm giving a 40% default value to them to start
+// this is the distance in sensor reading that is close enough for directed movement
+// I am putting this here so we can avoid chasing our tails early in positional control
+float closeEnough = 5; 
+float maxOutput = 
+
+
 int hipGoal;
 int thighGoal;
 int kneeGoal;
@@ -47,9 +60,6 @@ int kneeSensorPin = 17;
 int thighSensorPin = 18;
 int hipSensorPin = 20;
 int sensorPin[] = {hipSensorPin, thighSensorPin, kneeSensorPin};
-// this is the distance in sensor reading that is close enough for directed movement
-// I am putting this here so we can avoid chasing our tails early in positional control
-float closeEnough = 5; 
 
 
 //These are mapped to the right front leg
@@ -87,21 +97,12 @@ int homePosition[] = {900, 200, 350};
 
 int hipPotMax = 722;
 int hipPotMin = 93;
-//float hipAngleMin = -40.46;
-//float hipAngleMax = 40.46;
-//float hipSensorUnitsPerDeg;
 
 int thighPotMax = 917;
 int thighPotMin = 34;
-//float thighAngleMin = -6;
-//float thighAngleMax = 84;
-//float thighSensorUnitsPerDeg;
 
 int kneePotMax = 934;
 int kneePotMin = 148;
-//float kneeAngleMin = 13;
-//float kneeAngleMax = 123;
-//float kneeSensorUnitsPerDeg;
 
 float currentAngles[] = {0.00, 0.00, 0.00};
 float lastAngles[3];
@@ -133,10 +134,15 @@ void setup() {
     sensorAverage[i]->clear();
   }
 
-  Input = analogRead(sensorPin[0]);
-  Setpoint = targetVelocity[0];
-  hipPID.SetMode(AUTOMATIC);
-  hipPID.SetOutputLimits(0, 70);
+  //calculate govenors for each joint
+  for (int i=0; i<3; i++) {
+   governor[i] = 1023*(*governor_percent[i]/100); 
+  }
+
+  // Input = analogRead(sensorPin[0]);
+  // Setpoint = targetVelocity[0];
+  // hipPID.SetMode(AUTOMATIC);
+  // hipPID.SetOutputLimits(0, 70);
 
   for (int i = 0; i < 3; i++) {
     lastTime[i] = millis();
