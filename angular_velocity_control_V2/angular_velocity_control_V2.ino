@@ -4,32 +4,54 @@
     It takes in three goal angles and moves the leg to those angles
 */
 
-#include "RunningAverage.h"
-RunningAverage hipSensorAverage(1000);
-RunningAverage thighSensorAverage(1000);
-RunningAverage kneeSensorAverage(1000);
+int loopDelay = 100;
 
+int sensorAverageNumber = 10;
+int angleAverageNumber = 10;
+int velocityAverageNumber = 5;
+
+#include "RunningAverage.h"
+RunningAverage hipSensorAverage(sensorAverageNumber);
+RunningAverage thighSensorAverage(sensorAverageNumber);
+RunningAverage kneeSensorAverage(sensorAverageNumber);
 RunningAverage* sensorAverage[] ={&hipSensorAverage, &thighSensorAverage, &kneeSensorAverage};
 
-// #include <PID_v1.h>
-// double Setpoint, Input, Output;
+RunningAverage hipAngleAverage(angleAverageNumber);
+RunningAverage thighAngleAverage(angleAverageNumber);
+RunningAverage kneeAngleAverage(angleAverageNumber);
+RunningAverage* angleAverage[] = {&hipAngleAverage, &thighAngleAverage, &kneeAngleAverage};
 
-//PID hipPID(&Input, &Output, &Setpoint, 2,0,0, DIRECT);
+RunningAverage hipVelocityAverage(velocityAverageNumber);
+RunningAverage thighVelocityAverage(velocityAverageNumber);
+RunningAverage kneeVelocityAverage(velocityAverageNumber);
+RunningAverage* velocityAverage[] = {&hipVelocityAverage, &thighVelocityAverage, &kneeVelocityAverage};
+
+float lastSensorReading = 0;
+float lastAngle = 0;
+float lastVelocity = 0;
+
+
+
+#include <PID_v1.h>
+double Setpoint, Input, Output;
+
+double Kp = 10;
+double Ki = 0.1;
+double Kd = 0.0;
+PID hipPID(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
 
 float currentVelocity[3];
-float targetVelocity[] = {15, 15, 15}; // target velocity in degrees / second
+float targetVelocity[] = {3, 0, 0}; // target velocity in degrees / second
 unsigned long lastTime[3];
 unsigned long currentTime;
 unsigned long elapsedTime[3];
 
 
-int loopDelay = 10;
-
 // Desired (hip, thigh, knee) angles
 float commandAngle[] = {0.00, 83.00, 20.00};
 
 // Block for reading sensors and setting the PWM to drive the solenoids
-float bit_resolution = pow(2,10)-1;
+float bit_resolution = pow(2,13)-1;
 
 float PWM_percent[] = {45, 50, 50}; //PWM percentage to drive the solenoids at - this will translate into speed
 float PWM_value[] = {0, 0, 0};
@@ -40,11 +62,11 @@ float govP_thigh = 50;
 float govP_knee  =  50;
 float govP_hip   =  50;
 float* governor_percent[] = {&govP_knee, &govP_thigh, &govP_hip}; //percent of max duty cycle for PWM
-float governor[] = {410, 410, 410}; //these will be calculated below but I'm giving a 40% default value to them to start
+float governor[] = {1638, 1638, 1638}; //these will be calculated below but I'm giving a 40% default value to them to start
 // this is the distance in sensor reading that is close enough for directed movement
 // I am putting this here so we can avoid chasing our tails early in positional control
-float closeEnough = 5; 
-float maxOutput = 
+float closeEnough = 30;  // for 12 bit 
+//float maxOutput = 
 
 
 int hipGoal;
@@ -90,19 +112,27 @@ int current_reading_pin[] = {M2FB_pin, M1FB_pin, M1FB_hip_pin};
 //x home is knee fully retracted (cylindar fully extended) i.e. large pot value 
 //y home is thigh fully up (cylindar fully retracted) i.e. small pot value
 //z home is hip in the ~middle i.e. mid pot value
-int homePosition[] = {900, 200, 350}; 
+//int homePosition[] = {900, 200, 350}; 
 
 //Sensor reading to angle of joint block
 //These sensor values are for the right front leg
 
-int hipPotMax = 722;
-int hipPotMin = 93;
+#define hMax 5776
+#define hMin 744
+#define tMax 7336
+#define tMin 272
+#define kMax 7472
+#define kMin 1184
 
-int thighPotMax = 917;
-int thighPotMin = 34;
 
-int kneePotMax = 934;
-int kneePotMin = 148;
+int hipPotMax = hMax;
+int hipPotMin = hMin;
+
+int thighPotMax = tMax;
+int thighPotMin = tMin;
+
+int kneePotMax = kMax;
+int kneePotMin = kMin;
 
 float currentAngles[] = {0.00, 0.00, 0.00};
 float lastAngles[3];
@@ -125,6 +155,9 @@ const int L3 = 72; //72 inches is from knee joint to ankle joint
 
 float currentPos[] = {0.00, 0.00, 0.00};
 
+int val=0;
+int direction = 0;
+
 void setup() {
   Serial.begin(9600); 
   //  Serial.setTimeout(10);
@@ -132,20 +165,27 @@ void setup() {
   for (int i = 0; i < 3; i++) { //clear out running average
    //sensorAverage[i]->clear();
     sensorAverage[i]->clear();
+    angleAverage[i]->clear();
+    velocityAverage[i]->clear();
   }
 
   //calculate govenors for each joint
   for (int i=0; i<3; i++) {
-   governor[i] = 1023*(*governor_percent[i]/100); 
+   governor[i] = bit_resolution * (*governor_percent[i]/100); 
   }
 
-  // Input = analogRead(sensorPin[0]);
-  // Setpoint = targetVelocity[0];
-  // hipPID.SetMode(AUTOMATIC);
-  // hipPID.SetOutputLimits(0, 70);
+  //PID evaluation interval in ms
+  hipPID.SetSampleTime(5);
+  //PID set tuning paramaters 
+  hipPID.SetTunings(Kp, Ki, Kd);
+
+  Input = analogRead(sensorPin[0]);
+  Setpoint = targetVelocity[0];
+  hipPID.SetMode(AUTOMATIC);
+  hipPID.SetOutputLimits(0, 45);
 
   for (int i = 0; i < 3; i++) {
-    lastTime[i] = millis();
+    lastTime[i] = micros();
   }
 
 
@@ -156,7 +196,8 @@ void setup() {
 
 ///*disable when testing on < teensy 3.0
  
-  analogWriteResolution(10);
+  analogWriteResolution(13);
+  analogReadResolution(13);
   //max PWM freqency of the motor driver board is 20kHz
   analogWriteFrequency(3, 20000);
   analogWriteFrequency(5, 20000);
@@ -172,11 +213,30 @@ void setup() {
 
 }
 
+
 void loop() {
+
+  //for troubleshooting
+  // if (val > 2888) {
+  //   direction = 1;
+  // }
+  // if (val < 372) {
+  //   direction = 0;
+  // }
+
+  // if (direction == 0) {
+  //   val = val + 20;
+  // }
+  // else {
+  //   val = val - 20;
+  // }
+  // analogWrite(A14, val);
+  //Serial.println(val);
   
+
    //Read deadman first
-   deadMan = digitalRead(deadMan_pin);
-   //deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
+   //deadMan = digitalRead(deadMan_pin);
+   deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
    if (deadMan == 0) { // if deadman is off -- joystick is deactivated, then disable driver boards and write zero to PWM lines
      all_off();
    }
@@ -188,7 +248,11 @@ void loop() {
   //take sensor readings
  // Serial.print("current angles (hip, thigh, knee): (");
   for (int i = 0; i < 3; i++) {
-    sensorAverage[i]->addValue(analogRead(sensorPin[i]));
+    int tmcon = analogRead(sensorPin[i]);
+    tmcon = constrain(tmcon, hMin, hMax);
+    sensorAverage[i]->addValue(tmcon);
+
+    //sensorAverage[i]->addValue(analogRead(sensorPin[i]));
     // Serial.println();
     // Serial.print("average sensor reading ");
     // Serial.print(i);
@@ -198,14 +262,18 @@ void loop() {
     // int temp = (int) round(sensorAverage[i]->getAverage());
     //Serial.println(round(sensorAverage[i]->getAverage()));
 
+    //store the current running average of the sensor reading
     sensorReading[i] = round(sensorAverage[i]->getAverage());
-    //sensorReading[i] = analogRead(sensorPin[i]);
-    currentAngles[i] = sensorToAngle(i, sensorReading[i]);
+    //convert the sensor reading into a current angle
+    angleAverage[i]->addValue(sensorToAngle(i, sensorReading[i]));
+    //store the running average of the angle to current angle
+    currentAngles[i] = angleAverage[i]->getAverage();
 
-
-
-    currentTime = millis();
-    currentVelocity[i] = 1000 * (lastAngles[i] - currentAngles[i]) / (currentTime - lastTime[i]);
+    currentTime = micros();
+    float tempVelocity = 1000000 * (currentAngles[i] - lastAngles[i]) / (currentTime - lastTime[i]);
+    velocityAverage[i]->addValue(tempVelocity);
+    currentVelocity[i] = velocityAverage[i]->getAverage();
+    //currentVelocity[i] = 1000000 * (currentAngles[i] - lastAngles[i]) / (currentTime - lastTime[i]);  //velocity is in: degrees/second
     elapsedTime[i] = currentTime - lastTime[i];
     lastTime[i] = currentTime;
     lastAngles[i] = currentAngles[i];
@@ -215,27 +283,46 @@ void loop() {
     // Serial.print(currentVelocity[i]);
     // Serial.print("\t");
 
-    // if (i == 0) {
-    //   Input = currentVelocity[0];
-    //   hipPID.Compute();
-    //   Serial.print("hip PID output: ");
-    //   Serial.println(Output);
-    // }
+    if (i == 0) {
+      Input = currentVelocity[0];
+      hipPID.Compute();
+      Serial.print("hip PID output: ");
+      Serial.println(Output);
+    }
 
     currentAnglesR[i] = ((currentAngles[i] * 71)/4068);
     //Serial.print(currentAngles[i]);
     if (i == 2) {
      // Serial.print('\n');
     }
-    else if (i == 0) {
+    
+
+    if (i == 0) {
       //Serial.print(i);
-      Serial.print("hip sensor:  ");
-      Serial.print(sensorAverage[i]->getAverage());
-      Serial.print(" angle: ");
+      // float sensorDiff = lastSensorReading - sensorReading[0];
+      // float angleDiff = lastAngle - currentAngles[0];
+      // float velocityDiff = lastVelocity - currentVelocity[0];
+      // lastSensorReading = sensorReading[0];
+      // lastAngle = currentAngles[0];
+      // lastVelocity = currentVelocity[0];
+
+      // Serial.print(abs(sensorDiff));
+      // Serial.print("\t");
+      // Serial.print(abs(100 * angleDiff));
+      // Serial.print("\t");
+      // Serial.println(abs(velocityDiff));
+
+      //Serial.print("hip sensor:  ");
+      Serial.print(sensorReading[i]);
+      Serial.print("\t");
+      //Serial.print(sensorAverage[i]->getAverage());
+      //Serial.print("angle: ");
       Serial.print(currentAngles[i]);
-      Serial.print(" time: ");
-      Serial.print(elapsedTime[i]);
-      Serial.print(" velocity: ");
+      Serial.print("\t");
+      //Serial.print("time: ");
+      //Serial.print(elapsedTime[i]);
+      //Serial.print("\t");
+      //Serial.print("velocity: ");
       Serial.println(currentVelocity[i]);
 
       //Serial.print('\t');
@@ -410,8 +497,8 @@ float sensorToAngle(int joint, int sensorReading) {
   switch (joint) {
         case 0:
           //Serial.println("HIP");
-          sensorMax = 722;
-          sensorMin = 93;
+          sensorMax = hMax;
+          sensorMin = hMin;
           cylinderMinLength = 16;
           cylinderTravel = 8;
           C1 = 6.83905;
@@ -421,8 +508,8 @@ float sensorToAngle(int joint, int sensorReading) {
           break;
         case 1:
           //Serial.println("THIGH");
-          sensorMax = 917;
-          sensorMin = 34;
+          sensorMax = tMax;
+          sensorMin = tMin;
           cylinderMinLength = 24;
           cylinderTravel = 14;
           C1 = 10.21631;
@@ -432,8 +519,8 @@ float sensorToAngle(int joint, int sensorReading) {
           break;
         case 2:
           //Serial.println("KNEE");
-          sensorMax = 934;
-          sensorMin = 148;
+          sensorMax = kMax;
+          sensorMin = kMin;
           cylinderMinLength = 20;
           cylinderTravel = 12;
           C1 = 25.6021;
@@ -445,7 +532,7 @@ float sensorToAngle(int joint, int sensorReading) {
         float sensorUnitsPerInch = (sensorMax - sensorMin) / (cylinderTravel);
 //      Serial.print("sensor units per inch: ");
 //      Serial.println(sensorUnitsPerInch);
-      int sensorReading_sensorMin = sensorReading - sensorMin;
+        //float sensorReading_sensorMin = sensorReading - sensorMin;
 //      Serial.print("sensorReading_sensorMin: ");
 //      Serial.println(sensorReading_sensorMin);
       
@@ -489,8 +576,8 @@ float angleToSensor(int joint, float angle) {
   switch (joint) {
         case 0:
           //Serial.println("HIP");
-          sensorMax = 722.00;
-          sensorMin = 93.00;
+          sensorMax = hMax;
+          sensorMin = hMin;
           cylinderMinLength = 16;
           cylinderTravel = 8;
         //  cylinderMaxLength = cylinderMinLength + cylinderTravel;
@@ -501,8 +588,8 @@ float angleToSensor(int joint, float angle) {
           break;
         case 1:
           //Serial.println("THIGH");
-          sensorMax = 917.00;
-          sensorMin = 34.00;
+          sensorMax = tMax;
+          sensorMin = tMin;
           cylinderMinLength = 24;
           cylinderTravel = 14;
         //  cylinderMaxLength = cylinderMinLength + cylinderTravel;
@@ -513,8 +600,8 @@ float angleToSensor(int joint, float angle) {
           break;
         case 2:
           //Serial.println("KNEE");
-          sensorMax = 934.00;
-          sensorMin = 148.00;
+          sensorMax = kMax;
+          sensorMin = kMin;
           cylinderMinLength = 20;
           cylinderTravel = 12;
         //  cylinderMaxLength = cylinderMinLength + cylinderTravel;
