@@ -4,11 +4,11 @@
     It takes in three goal angles and moves the leg to those angles
 */
 
-int loopDelay = 100;
+int loopDelay = 10;
 
-int sensorAverageNumber = 10;
-int angleAverageNumber = 10;
-int velocityAverageNumber = 5;
+int sensorAverageNumber = 50;
+int angleAverageNumber = 50;
+int velocityAverageNumber = 20;
 
 #include "RunningAverage.h"
 RunningAverage hipSensorAverage(sensorAverageNumber);
@@ -30,22 +30,22 @@ float lastSensorReading = 0;
 float lastAngle = 0;
 float lastVelocity = 0;
 
-
-
-#include <PID_v1.h>
-double Setpoint, Input, Output;
-
-double Kp = 10;
-double Ki = 0.1;
-double Kd = 0.0;
-PID hipPID(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
-
 float currentVelocity[3];
-float targetVelocity[] = {3, 0, 0}; // target velocity in degrees / second
+float targetVelocity[] = {5, 0, 0}; // target velocity in degrees / second
 unsigned long lastTime[3];
 unsigned long currentTime;
 unsigned long elapsedTime[3];
 
+#include <PID_v1.h>
+double Setpoint, Input, Output;
+double SetpointR, InputR, OutputR;
+
+double Kp = 1; // These are just initialization values - I will calculate a Kp based on the
+//target velocity in setup
+double Ki = 0.0;
+double Kd = 0.0;
+PID hipPIDforward(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
+PID hipPIDreverse(&InputR, &OutputR, &SetpointR, Kp,Ki,Kd, DIRECT);
 
 // Desired (hip, thigh, knee) angles
 float commandAngle[] = {0.00, 83.00, 20.00};
@@ -58,7 +58,7 @@ float PWM_value[] = {0, 0, 0};
 
 //set governor for max duty
 //cycle -- e.g. 40 would mean 40% of max valve open at full joystick movement
-float govP_thigh = 50;
+float govP_thigh = 45;
 float govP_knee  =  50;
 float govP_hip   =  50;
 float* governor_percent[] = {&govP_knee, &govP_thigh, &govP_hip}; //percent of max duty cycle for PWM
@@ -174,15 +174,26 @@ void setup() {
    governor[i] = bit_resolution * (*governor_percent[i]/100); 
   }
 
-  //PID evaluation interval in ms
-  hipPID.SetSampleTime(5);
-  //PID set tuning paramaters 
-  hipPID.SetTunings(Kp, Ki, Kd);
+  //Kp = (governor[0] / targetVelocity[0]) / 5;
 
+  //PID evaluation interval in ms
+  hipPIDforward.SetSampleTime(5);
+  //PID set tuning paramaters 
+  hipPIDforward.SetTunings(Kp, Ki, Kd);
   Input = analogRead(sensorPin[0]);
   Setpoint = targetVelocity[0];
-  hipPID.SetMode(AUTOMATIC);
-  hipPID.SetOutputLimits(0, 45);
+  hipPIDforward.SetMode(AUTOMATIC);
+  hipPIDforward.SetOutputLimits(0, 45);
+
+  //PID evaluation interval in ms
+  hipPIDreverse.SetSampleTime(5);
+  //PID set tuning paramaters 
+  hipPIDreverse.SetTunings(Kp, Ki, Kd);
+  InputR = analogRead(sensorPin[0]);
+  SetpointR = -targetVelocity[0];
+  hipPIDreverse.SetMode(AUTOMATIC);
+  hipPIDreverse.SetControllerDirection(REVERSE);
+  hipPIDreverse.SetOutputLimits(0, 45);
 
   for (int i = 0; i < 3; i++) {
     lastTime[i] = micros();
@@ -235,8 +246,8 @@ void loop() {
   
 
    //Read deadman first
-   //deadMan = digitalRead(deadMan_pin);
-   deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
+   deadMan = digitalRead(deadMan_pin);
+   //deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
    if (deadMan == 0) { // if deadman is off -- joystick is deactivated, then disable driver boards and write zero to PWM lines
      all_off();
    }
@@ -285,9 +296,16 @@ void loop() {
 
     if (i == 0) {
       Input = currentVelocity[0];
-      hipPID.Compute();
-      Serial.print("hip PID output: ");
+      hipPIDforward.Compute();
+      Serial.print("hip forward PID output: ");
       Serial.println(Output);
+
+      InputR = currentVelocity[0];
+      hipPIDreverse.Compute();
+      Serial.print("hip reverse PID output: ");
+      Serial.println(OutputR);
+
+
     }
 
     currentAnglesR[i] = ((currentAngles[i] * 71)/4068);
@@ -397,13 +415,16 @@ void loop() {
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing thigh up");
         }      
         else if (i == 0) { // hip
-          Input = -currentVelocity[0];
-          hipPID.Compute();
-          Serial.print("hip PID output: ");
-          Serial.println(Output);
-          int tmpPWM = (Output/100) * bit_resolution;
-          //analogWrite(hipPWM2_reverse, (int) Output);
-          analogWrite(hipPWM2_reverse, tmpPWM);
+          // Input = currentVelocity[0];
+          // hipPIDreverse.Compute();
+          // Serial.print("hip reverse PID output: ");
+          // Serial.println(Output);
+          // int tmpPWMreverse = (Output/100) * bit_resolution;
+          Serial.println("HIP REVERSE COMMAND");
+
+          //PWM_value[0] = (Output/100) * bit_resolution;
+          //analogWrite(hipPWM2_reverse, tmpPWMreverse);
+          analogWrite(hipPWM2_reverse, PWM_value[i]);
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip back - reverse");
         }
       }
@@ -417,14 +438,17 @@ void loop() {
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing thigh down");
         }      
         else if (i == 0) { // hip
-          Input = currentVelocity[0];
-          hipPID.Compute();
-          Serial.print("hip PID output: ");
-          Serial.println(Output);
-          int tmpPWM = (Output/100) * bit_resolution;
+          // Input = currentVelocity[0];
+          // hipPIDforward.Compute();
+          // Serial.print("hip PID output: ");
+          // Serial.println(Output);
+          // int tmpPWM = (Output/100) * bit_resolution;
+
+          Serial.println("HIP FORWARD COMMAND");
           //PWM_value[0] = (Output/100) * bit_resolution;
           //analogWrite(hipPWM1_forward, (int) Output);
-          analogWrite(hipPWM1_forward, tmpPWM);
+          //analogWrite(hipPWM1_forward, tmpPWM);
+          analogWrite(hipPWM1_forward, PWM_value[i]);
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip forward");
         }
       }
