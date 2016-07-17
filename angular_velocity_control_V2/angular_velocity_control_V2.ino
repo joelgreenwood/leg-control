@@ -42,7 +42,7 @@ double SetpointR, InputR, OutputR;
 
 double Kp = 1; // These are just initialization values - I will calculate a Kp based on the
 //target velocity in setup
-double Ki = 0.1;
+double Ki = 0.0;
 double Kd = 0.0;
 PID hipPIDforward(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
 PID hipPIDreverse(&InputR, &OutputR, &SetpointR, Kp,Ki,Kd, DIRECT);
@@ -174,26 +174,28 @@ void setup() {
    governor[i] = bit_resolution * (*governor_percent[i]/100); 
   }
 
-  Kp = abs((govP_hip / targetVelocity[0]));
+  //Kp = abs((govP_hip / targetVelocity[0]));
 
   //PID evaluation interval in ms
   hipPIDforward.SetSampleTime(5);
   //PID set tuning paramaters 
   hipPIDforward.SetTunings(Kp, Ki, Kd);
-  Input = analogRead(sensorPin[0]);
+  Input = 0;
   Setpoint = targetVelocity[0];
   hipPIDforward.SetMode(AUTOMATIC);
-  hipPIDforward.SetOutputLimits(0, 45);
+  hipPIDforward.SetOutputLimits(0, 50);
 
   //PID evaluation interval in ms
   hipPIDreverse.SetSampleTime(5);
   //PID set tuning paramaters 
   hipPIDreverse.SetTunings(Kp, Ki, Kd);
-  InputR = analogRead(sensorPin[0]);
+  InputR = 0;
   SetpointR = targetVelocity[0];
   hipPIDreverse.SetMode(AUTOMATIC);
+  //ignor for now
+
   hipPIDreverse.SetControllerDirection(REVERSE);
-  hipPIDreverse.SetOutputLimits(0, 45);
+  hipPIDreverse.SetOutputLimits(0, 50);
 
   for (int i = 0; i < 3; i++) {
     lastTime[i] = micros();
@@ -201,7 +203,7 @@ void setup() {
 
 
   for (int i = 0; i < 3; i++) {
-   PWM_value[i] = (PWM_percent[i]/100) * bit_resolution;
+   PWM_value[i] = (PWM_percent[i]/100.00) * bit_resolution;
   }
  //setup analog wite resolution and PWM frequency
 
@@ -246,21 +248,24 @@ void loop() {
   
 
    //Read deadman first
-   //deadMan = digitalRead(deadMan_pin);
-   deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
+   deadMan = digitalRead(deadMan_pin);
+   //deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
    if (deadMan == 0) { // if deadman is off -- joystick is deactivated, then disable driver boards and write zero to PWM lines
      all_off();
    }
    else {
       digitalWrite(enable_pin, HIGH);
       digitalWrite(enable_pin_hip, HIGH);
+      Serial.println("deadman hot");
    } 
 
   //take sensor readings
  // Serial.print("current angles (hip, thigh, knee): (");
   for (int i = 0; i < 3; i++) {
     int tmcon = analogRead(sensorPin[i]);
-    tmcon = constrain(tmcon, hMin, hMax);
+    if (i == 0) {
+      tmcon = constrain(tmcon, hMin, hMax);
+    }
     sensorAverage[i]->addValue(tmcon);
 
     //sensorAverage[i]->addValue(analogRead(sensorPin[i]));
@@ -317,8 +322,8 @@ void loop() {
       Serial.println(Output);
 
       hipPIDreverse.Compute();
-      Serial.print("hip reverse PID output: ");
-      Serial.println(OutputR);
+      //Serial.print("hip reverse PID output: ");
+      //Serial.println(OutputR);
 
     }
 
@@ -380,10 +385,12 @@ void loop() {
 
     //get target angles from serial command
     commandAngle[0] = Serial.parseFloat();
-    commandAngle[1] = Serial.parseFloat();
-    commandAngle[2] = Serial.parseFloat();
+    commandAngle[1] = 70;
+    //commandAngle[1] = Serial.parseFloat();
+    commandAngle[2] = 70;
+    //commandAngle[2] = Serial.parseFloat();
     targetVelocity[0] = Serial.parseFloat();
-    //Kp = Serial.parseFloat();
+    Kp = Serial.parseFloat();
     //Ki = Serial.parseFloat();
     //Kd = Serial.parseFloat();
 
@@ -413,7 +420,7 @@ void loop() {
       }
 
       //recalcuate Kp based on max PWM and expected error (target velocity - 0)
-      Kp = abs((govP_hip / targetVelocity[0]));
+      //Kp = abs((govP_hip / targetVelocity[0]))*2;
       hipPIDforward.SetTunings(Kp, Ki, Kd);
       hipPIDreverse.SetTunings(Kp, Ki, Kd);
 
@@ -447,13 +454,18 @@ void loop() {
           // Serial.print("hip reverse PID output: ");
           // Serial.println(Output);
           // int tmpPWMreverse = (Output/100) * bit_resolution;
-          Serial.println("HIP REVERSE COMMAND");
+          //Serial.println("HIP REVERSE COMMAND");
 
-          //PWM_value[0] = (Output/100) * bit_resolution;
+          PWM_value[i] = (Output/100.00) * bit_resolution;
+          Serial.print("PWM value - reverse: ");
+          Serial.println(PWM_value[i]);
           //analogWrite(hipPWM2_reverse, tmpPWMreverse);
-          //analogWrite(hipPWM2_reverse, PWM_value[i]);
-          analogWrite(hipPWM2_reverse, Output);
-          //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip back - reverse");
+          //PWM_value[i] = (Output/100) * (pow(2,10)-1);
+          //PWM_value[i] = 700;
+
+          analogWrite(hipPWM2_reverse, (int)PWM_value[i]);
+          //analogWrite(hipPWM2_reverse, Output);
+          print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip back - reverse");
         }
       }
       else if (sensorReading[i] < sensorGoal[i]) {
@@ -472,13 +484,17 @@ void loop() {
           // Serial.println(Output);
           // int tmpPWM = (Output/100) * bit_resolution;
 
-          Serial.println("HIP FORWARD COMMAND");
-          //PWM_value[0] = (Output/100) * bit_resolution;
+          //Serial.println("HIP FORWARD COMMAND");
+          PWM_value[i] = (Output/100.00) * bit_resolution;
+          Serial.print("PWM value - forward: ");
+          Serial.println(PWM_value[i]);
           //analogWrite(hipPWM1_forward, (int) Output);
           //analogWrite(hipPWM1_forward, tmpPWM);
-          //analogWrite(hipPWM1_forward, PWM_value[i]);
-          analogWrite(hipPWM1_forward, Output);
-          //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip forward");
+          //PWM_value[i] = (Output/100) * (pow(2,10)-1);
+          //PWM_value[i] = 500;
+          analogWrite(hipPWM1_forward, (int)PWM_value[i]);
+          //analogWrite(hipPWM1_forward, Output);
+          print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip forward");
         }
       }
     }
