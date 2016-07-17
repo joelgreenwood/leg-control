@@ -42,7 +42,7 @@ double SetpointR, InputR, OutputR;
 
 double Kp = 1; // These are just initialization values - I will calculate a Kp based on the
 //target velocity in setup
-double Ki = 0.0;
+double Ki = 0.1;
 double Kd = 0.0;
 PID hipPIDforward(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
 PID hipPIDreverse(&InputR, &OutputR, &SetpointR, Kp,Ki,Kd, DIRECT);
@@ -174,7 +174,7 @@ void setup() {
    governor[i] = bit_resolution * (*governor_percent[i]/100); 
   }
 
-  //Kp = (governor[0] / targetVelocity[0]) / 5;
+  Kp = abs((govP_hip / targetVelocity[0]));
 
   //PID evaluation interval in ms
   hipPIDforward.SetSampleTime(5);
@@ -190,7 +190,7 @@ void setup() {
   //PID set tuning paramaters 
   hipPIDreverse.SetTunings(Kp, Ki, Kd);
   InputR = analogRead(sensorPin[0]);
-  SetpointR = -targetVelocity[0];
+  SetpointR = targetVelocity[0];
   hipPIDreverse.SetMode(AUTOMATIC);
   hipPIDreverse.SetControllerDirection(REVERSE);
   hipPIDreverse.SetOutputLimits(0, 45);
@@ -246,8 +246,8 @@ void loop() {
   
 
    //Read deadman first
-   deadMan = digitalRead(deadMan_pin);
-   //deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
+   //deadMan = digitalRead(deadMan_pin);
+   deadMan = 1;  //This is here for debugging but can be seriously dangious on the real robot if not commented out
    if (deadMan == 0) { // if deadman is off -- joystick is deactivated, then disable driver boards and write zero to PWM lines
      all_off();
    }
@@ -295,16 +295,30 @@ void loop() {
     // Serial.print("\t");
 
     if (i == 0) {
-      Input = currentVelocity[0];
+
+      Serial.print("Kp: ");
+      Serial.print(Kp);
+      Serial.print("\t");
+      float error = targetVelocity[0] - currentVelocity[0];
+      Serial.print("error: ");
+      Serial.println(error);
+
+      if (targetVelocity[0] >= 0) {
+        Input = currentVelocity[0];
+        InputR = currentVelocity[0];
+      }
+      else {
+        Input = -currentVelocity[0];
+        InputR = -currentVelocity[0];
+      }
+      
       hipPIDforward.Compute();
       Serial.print("hip forward PID output: ");
       Serial.println(Output);
 
-      InputR = currentVelocity[0];
       hipPIDreverse.Compute();
       Serial.print("hip reverse PID output: ");
       Serial.println(OutputR);
-
 
     }
 
@@ -368,6 +382,11 @@ void loop() {
     commandAngle[0] = Serial.parseFloat();
     commandAngle[1] = Serial.parseFloat();
     commandAngle[2] = Serial.parseFloat();
+    targetVelocity[0] = Serial.parseFloat();
+    //Kp = Serial.parseFloat();
+    //Ki = Serial.parseFloat();
+    //Kd = Serial.parseFloat();
+
 
    Serial.println(); 
    Serial.print("goal angle (hip, thigh, knee): ");
@@ -379,6 +398,8 @@ void loop() {
    Serial.print(commandAngle[2]);
    Serial.println(")");
    Serial.println(); 
+   Serial.print("Tareget velocity: ");
+   Serial.println(targetVelocity[0]);
     
     //look for newline or carriage return 
     if (Serial.read() == '\n') {
@@ -390,6 +411,12 @@ void loop() {
       sensorGoal[i] = angleToSensor(i, commandAngle[i]);
       goingHot[i] = 1; 
       }
+
+      //recalcuate Kp based on max PWM and expected error (target velocity - 0)
+      Kp = abs((govP_hip / targetVelocity[0]));
+      hipPIDforward.SetTunings(Kp, Ki, Kd);
+      hipPIDreverse.SetTunings(Kp, Ki, Kd);
+
     }
   }
       
@@ -424,7 +451,8 @@ void loop() {
 
           //PWM_value[0] = (Output/100) * bit_resolution;
           //analogWrite(hipPWM2_reverse, tmpPWMreverse);
-          analogWrite(hipPWM2_reverse, PWM_value[i]);
+          //analogWrite(hipPWM2_reverse, PWM_value[i]);
+          analogWrite(hipPWM2_reverse, Output);
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip back - reverse");
         }
       }
@@ -448,7 +476,8 @@ void loop() {
           //PWM_value[0] = (Output/100) * bit_resolution;
           //analogWrite(hipPWM1_forward, (int) Output);
           //analogWrite(hipPWM1_forward, tmpPWM);
-          analogWrite(hipPWM1_forward, PWM_value[i]);
+          //analogWrite(hipPWM1_forward, PWM_value[i]);
+          analogWrite(hipPWM1_forward, Output);
           //print_reading(i, sensorReading[i], sensorGoal[i], "bringing hip forward");
         }
       }
