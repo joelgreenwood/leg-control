@@ -47,27 +47,40 @@ double Kd = 0.0;
 PID hipPIDforward(&Input, &Output, &Setpoint, Kp,Ki,Kd, DIRECT);
 PID hipPIDreverse(&InputR, &OutputR, &SetpointR, Kp,Ki,Kd, DIRECT);
 
+//Deadband before flow in valves with PWM command -- this is in PWM percentage (0-100%)
+//This will be added to the Output of the PID loop.  I will have to bound that result to keep 
+//the PWM value from being higher than the govenor
+float deadband[] = {15.0, 15.0, 15.0};
+//float deadbandValue[] = {0.0,0.0,0.0};
+
+
+
+
 // Desired (hip, thigh, knee) angles
 float commandAngle[] = {0.00, 83.00, 20.00};
 
 // Block for reading sensors and setting the PWM to drive the solenoids
-float bit_resolution = pow(2,13)-1;
+
+int writeBits = 13;
+int readBits = 13;
+float bitWriteResolution = pow(2,writeBits)-1;
+float bitReadResolution = pow(2,readBits)-1;
 
 float PWM_percent[] = {45, 50, 50}; //PWM percentage to drive the solenoids at - this will translate into speed
 float PWM_value[] = {0, 0, 0};
 
 //set governor for max duty
 //cycle -- e.g. 40 would mean 40% of max valve open at full joystick movement
-float govP_thigh = 45;
-float govP_knee  =  50;
-float govP_hip   =  50;
-float* governor_percent[] = {&govP_knee, &govP_thigh, &govP_hip}; //percent of max duty cycle for PWM
+float govP_hip   =  50.0;
+float govP_thigh = 45.0;
+float govP_knee  =  50.0;
+float* governor_percent[] = {&govP_hip, &govP_thigh, &govP_knee}; //percent of max duty cycle for PWM
 float governor[] = {1638, 1638, 1638}; //these will be calculated below but I'm giving a 40% default value to them to start
 // this is the distance in sensor reading that is close enough for directed movement
 // I am putting this here so we can avoid chasing our tails early in positional control
 float closeEnough = 30;  // for 12 bit 
-//float maxOutput = 
-
+//float maxOutput = 50.0;
+float adjustedOutput = 0;
 
 int hipGoal;
 int thighGoal;
@@ -171,22 +184,23 @@ void setup() {
 
   //calculate govenors for each joint
   for (int i=0; i<3; i++) {
-   governor[i] = bit_resolution * (*governor_percent[i]/100); 
+   governor[i] = bitWriteResolution * (*governor_percent[i]/100); 
   }
 
+  
   //Kp = abs((govP_hip / targetVelocity[0]));
 
   //PID evaluation interval in ms
-  hipPIDforward.SetSampleTime(5);
+  hipPIDforward.SetSampleTime(10);
   //PID set tuning paramaters 
   hipPIDforward.SetTunings(Kp, Ki, Kd);
   Input = 0;
   Setpoint = targetVelocity[0];
   hipPIDforward.SetMode(AUTOMATIC);
-  hipPIDforward.SetOutputLimits(0, 50);
+  hipPIDforward.SetOutputLimits(0, govP_hip);
 
   //PID evaluation interval in ms
-  hipPIDreverse.SetSampleTime(5);
+  hipPIDreverse.SetSampleTime(10);
   //PID set tuning paramaters 
   hipPIDreverse.SetTunings(Kp, Ki, Kd);
   InputR = 0;
@@ -195,7 +209,7 @@ void setup() {
   //ignor for now
 
   hipPIDreverse.SetControllerDirection(REVERSE);
-  hipPIDreverse.SetOutputLimits(0, 50);
+  hipPIDreverse.SetOutputLimits(0, govP_hip);
 
   for (int i = 0; i < 3; i++) {
     lastTime[i] = micros();
@@ -203,14 +217,14 @@ void setup() {
 
 
   for (int i = 0; i < 3; i++) {
-   PWM_value[i] = (PWM_percent[i]/100.00) * bit_resolution;
+   PWM_value[i] = (PWM_percent[i]/100.00) * bitWriteResolution;
   }
  //setup analog wite resolution and PWM frequency
 
 ///*disable when testing on < teensy 3.0
  
-  analogWriteResolution(13);
-  analogReadResolution(13);
+  analogWriteResolution(writeBits);
+  analogReadResolution(readBits);
   //max PWM freqency of the motor driver board is 20kHz
   analogWriteFrequency(3, 20000);
   analogWriteFrequency(5, 20000);
@@ -320,6 +334,14 @@ void loop() {
       hipPIDforward.Compute();
       Serial.print("hip forward PID output: ");
       Serial.println(Output);
+
+      adjustedOutput = Output + deadband[i];
+      if (adjustedOutput > *governor_percent[i]) {
+        adjustedOutput = *governor_percent[i];
+      }
+
+      Serial.print("adjusted output: ");
+      Serial.println(adjustedOutput);
 
       hipPIDreverse.Compute();
       //Serial.print("hip reverse PID output: ");
@@ -456,7 +478,13 @@ void loop() {
           // int tmpPWMreverse = (Output/100) * bit_resolution;
           //Serial.println("HIP REVERSE COMMAND");
 
-          PWM_value[i] = (Output/100.00) * bit_resolution;
+          adjustedOutput = Output + deadband[i];
+
+          if (adjustedOutput > *governor_percent[i]) {
+            adjustedOutput = *governor_percent[i];
+          }
+
+          PWM_value[i] = (adjustedOutput/100.00) * bitWriteResolution;
           Serial.print("PWM value - reverse: ");
           Serial.println(PWM_value[i]);
           //analogWrite(hipPWM2_reverse, tmpPWMreverse);
@@ -485,7 +513,14 @@ void loop() {
           // int tmpPWM = (Output/100) * bit_resolution;
 
           //Serial.println("HIP FORWARD COMMAND");
-          PWM_value[i] = (Output/100.00) * bit_resolution;
+
+          adjustedOutput = Output + deadband[i];
+
+          if (adjustedOutput > *governor_percent[i]) {
+            adjustedOutput = *governor_percent[i];
+         }
+
+          PWM_value[i] = (adjustedOutput/100.00) * bitWriteResolution;
           Serial.print("PWM value - forward: ");
           Serial.println(PWM_value[i]);
           //analogWrite(hipPWM1_forward, (int) Output);
