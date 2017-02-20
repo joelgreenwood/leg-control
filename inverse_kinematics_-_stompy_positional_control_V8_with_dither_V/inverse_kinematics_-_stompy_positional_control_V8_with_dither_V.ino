@@ -66,7 +66,7 @@ int hipSensorPin = 20;
 int sensorPin[] = {hipSensorPin, thighSensorPin, kneeSensorPin};
 // this is the distance in sensor reading that is close enough for directed movement
 // I am putting this here so we can avoid chasing our tails early in positional control
-int closeEnough = 10; 
+int closeEnough = 1; 
 
 
 //These are mapped to the right front leg
@@ -192,9 +192,9 @@ void setup() {
   half_dither_period = dither_period/2;
 
   //sensor units per deg
-//  hipSensorUnitsPerDeg = (hipPotMax - hipPotMin) / (hipAngleMax - hipAngleMin);
-//  thighSensorUnitsPerDeg = (thighPotMax - thighPotMin) / (thighAngleMax - thighAngleMin);
-//  kneeSensorUnitsPerDeg = (kneePotMax - kneePotMin) / (kneeAngleMax - kneeAngleMin);
+  hipSensorUnitsPerDeg = (hipPotMax - hipPotMin) / (hipAngleMax - hipAngleMin);
+  thighSensorUnitsPerDeg = (thighPotMax - thighPotMin) / (thighAngleMax - thighAngleMin);
+  kneeSensorUnitsPerDeg = (kneePotMax - kneePotMin) / (kneeAngleMax - kneeAngleMin);
 }
 
 void loop() {
@@ -217,17 +217,16 @@ void loop() {
    } 
 
   //take sensor readings
-  //Serial.print("current angles (hip, thigh, knee): ");
+  Serial.print("(sensor H,T,K)\t");
   for (int i = 0; i < 3; i++) {
     sensorReading[i] = analogRead(sensorPin[i]);
-//    Serial.print("sensor: ");
-//    Serial.print(i);
-//    Serial.print(" ");
-//    Serial.println(sensorReading[i]);
+    Serial.print(sensorReading[i]);
+    Serial.print("\t");
 
-    currentAngles[i] = sensorToAngle(i, sensorReading[i]);
+    currentAngles[i] = sensorToAngle(i, sensorReading[i] );
     currentAnglesR[i] = ((currentAngles[i] * 71)/4068);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> commented out to test dither  
+   // Serial.print("current angles (hip, thigh, knee): (");
 //    Serial.print(currentAngles[0]);
 //    if (i == 2) {
 //      Serial.print(")   ");
@@ -252,13 +251,14 @@ void loop() {
   }
 
 //      //publish current angles 
-  Serial.print("current angles (hip, thigh, knee): (");
+  Serial.print("angle (H, T, K)\t");
+ // Serial.print("\t");
   Serial.print(currentAngles[0]);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentAngles[1]);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentAngles[2]);
-  Serial.print(")   ");
+  Serial.print("\t");
   
   //publish current (x,y,z);
   currentX = cos(currentAnglesR[0]) * (L1 + L2*cos(currentAnglesR[1]) + L3*cos(currentAnglesR[1] + currentAnglesR[2] - pi));
@@ -268,13 +268,14 @@ void loop() {
   //short version of angles and x,y,z
   //format:
   //x y z hipangle  thighangle  kneeangle
-  Serial.print("(x y z):\t");
+  Serial.print("(x y z)");
+  Serial.print("\t");
   Serial.print(currentX);
-  Serial.print('\t');
+  Serial.print("\t");
   Serial.print(currentY);
-  Serial.print('\t');
+  Serial.print("\t");
   Serial.print(currentZ);
-  Serial.println('\t'); 
+  Serial.print("\t");
 //  Serial.print(currentHipAngle);
 //  Serial.print('\t');
 //  Serial.print(currentThighAngle);
@@ -513,10 +514,11 @@ void loop() {
    } 
   }
   
-  
+  Serial.println();
   //this is a short delay so I can read the serial while programing
   delay(2);
 }
+
 
 //This is a simple program to make sure the driver board is not enabled if the joystick is turned off (deadMan is low)
 void all_off() {
