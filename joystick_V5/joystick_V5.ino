@@ -262,6 +262,21 @@ void loop()
      }     
 
      //block for printing labels
+    if (i==3) {
+      Serial.print("(knee thigh hip sensors)");
+      Serial.print("\t");
+      Serial.print(sensor_values[i]);
+      Serial.print("\t");
+    }
+    if (i==4) {
+      Serial.print(sensor_values[i]);
+      Serial.print("\t");
+    }
+    if (i==6) {
+      Serial.print(sensor_values[i]);
+      Serial.print("\t");
+    }
+     
 //     Serial.print(sensor_pin_labels[i]);
 //     
 //     if (i==7) {
@@ -276,10 +291,10 @@ void loop()
 //       Serial.print("@");
 //       Serial.print(govP_hip);
 //     }
-          
-     //Serial.print('\t');
-     Serial.print(sensor_values[i]);
-     Serial.print("\t");
+//          
+//     //Serial.print('\t');
+//     Serial.print(sensor_values[i]);
+//     Serial.print("\t");
    }
    
 //Calculate current (x,y,z) from angles
@@ -293,22 +308,23 @@ void loop()
   currentY = currentX * tan(theta1R);
   currentZ = (L2 * sin(theta2R)) + (L3 * sin(theta2R + theta3R - pi));
  // Serial.println();
-  Serial.print(" Current (x,y,z): (");
+  Serial.print("(x,y,z)");
+  Serial.print("\t");
   Serial.print(currentX);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentY);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentZ);
-  Serial.print(")  ");
+  Serial.print("\t");
 
  //publish current angles 
-  Serial.print("current angles (hip, thigh, knee): (");
+  Serial.print("angles (hip, thigh, knee)\t");
   Serial.print(currentHipAngle);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentThighAngle);
-  Serial.print(", ");
+  Serial.print("\t");
   Serial.print(currentKneeAngle);
-  Serial.print(")   ");
+  Serial.print("\t");
     
 //set PWM outputs
   
@@ -395,10 +411,10 @@ void loop()
        }
     }
     
-    Serial.print(high_pwm_values[i]);
-    Serial.print('\t');
-    Serial.print(low_pwm_values[i]);
-    Serial.print('\t');
+//    Serial.print(high_pwm_values[i]);
+//    Serial.print('\t');
+//    Serial.print(low_pwm_values[i]);
+//    Serial.print('\t');
     
     
     
