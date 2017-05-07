@@ -1,0 +1,21 @@
+#!/bin/bash
+
+#run:  source setPort
+#or port=/dev/cu.usb*
+#   export port
+#instead of hard coding the port below
+#port=/dev/cu.usbmodem1385701
+
+#. ~/Dropbox/GitHub/leg-control/setPort
+
+#This sets the teensy port to the correct value
+_port=/dev/cu.usb*
+port=`eval ls $_port`
+
+_now=$(date +"%m_%d_%Y_%S")
+_file="/Users/joel/Dropbox/GitHub/leg-control/logs/${1}__${_now}"
+
+echo $_file
+
+#This prints the output of the port and makes a log file
+cat $port | tee $_file
