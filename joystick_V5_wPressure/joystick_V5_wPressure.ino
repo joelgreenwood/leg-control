@@ -66,6 +66,35 @@ int M2FB_pin = 22;
 int M1FB_hip_pin = 23;
 
 
+//This is the array to select which values to print
+int sensorPWMpressure[17];
+elapsedMillis since_print;
+int print_period = 100; //in ms - so 100 is priting at 10Hz
+
+/* This is the list of values:
+0   Pressure 1  
+1   Pressure 2  
+2   Pressure 3  
+3   Pressure 4  
+4   X joystick  
+5   Y joystick  
+6   Z joystick  
+7   Thigh Pot 
+8   Knee Pot  
+9   Compliant Pot 
+10  Hip Pot 
+11  knee PWM-1  
+12  thigh PWM-1 
+13  hip PWM-1 
+14  knee PWM-2  
+15  thigh PWM-2 
+16  hip PWM-2
+*/
+
+int include[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+//int include[] = {0,2,5,7,9,12,15};
+//for printing only a subset of values
+int size = sizeof(include)/sizeof(int);
 
 //I'm creating arrays to make the code easier to deal with in the main loop
 int sensor_values[] = {x, y, z, kneePot, thighPot, compliantPot, hipPot, M1FB, M2FB, M1FB_hip};
@@ -186,11 +215,6 @@ float theta3;
 float currentX;
 float currentY;
 float currentZ;
-
-//print:  pressureSensor1-4 joystick-x joystick-y joystick-z kneePot thighPot compliantPot hipPot kneePWM-1 kneePWM-2 thighPWM-1 thighPWM-2 hipPWM-1 hipPWM-2
-int sensorPWMpressure[17];
-elapsedMillis since_print;
-int print_period = 100;
 
 void setup()
 {   
@@ -486,16 +510,27 @@ for (int i = 0; i < 4; i ++) {
     }
   }
 
-  
 
+//int include[] = {1,2,3,6}; //put this at the top
+//int size = sizeof(include)/sizeof(int); //just calculate this once
 if (since_print >= print_period) {
- for (int i = 0; i < 17; i++) {
-  Serial.print(sensorPWMpressure[i]);
-  Serial.print("\t"); 
- }
- since_print = 0;
- Serial.println();
+        for (int i; i < size; i++) {
+                Serial.print(sensorPWMpressure[include[i]]);
+                Serial.print("\t"); 
+        }
+        since_print = 0;
+        Serial.println();
 }
+
+
+// if (since_print >= print_period) {
+//  for (int i = 0; i < 17; i++) {
+//   Serial.print(sensorPWMpressure[i]);
+//   Serial.print("\t"); 
+//  }
+//  since_print = 0;
+//  Serial.println();
+// }
  
  
  
