@@ -155,6 +155,12 @@ int pwm_values[] = {kneePWM1, kneePWM2, thighPWM1, thighPWM2, hipPWM1, hipPWM2};
 int high_pwm_values[] = {kneePWM2, thighPWM2, hipPWM2};
 int low_pwm_values[] = {kneePWM1, thighPWM1, hipPWM1};
 const int pwm_pins[] = {kneePWM1_retract, kneePWM2_extend, thighPWM1_up, thighPWM2_down, hipPWM1_forward, hipPWM2_reverse};
+
+// string pots are S (increase as they extend)
+// knee out = low
+// thigh dead bug = low
+// hip back = low
+
 const int high_pwm_pins[] = {kneePWM2_extend, thighPWM2_down, hipPWM2_reverse};
 const int low_pwm_pins[] = {kneePWM1_retract, thighPWM1_up, hipPWM1_forward};
 
@@ -170,9 +176,7 @@ int tmp_dither_value;
 int tmp_pwm_value;
 int tmp_pwm_readout= 500;
 
-//range limits
-int kneePotLimitMax = 925;
-int kneePotLimitMin = 160;
+
 
 //Sensor reading to angle of joint block
 //These sensor values are for the right front leg
@@ -193,6 +197,21 @@ int hipPotMin = 93;
 float hipAngleMin = -40.46;
 float hipAngleMax = 40.46;
 float hipSensorUnitsPerDeg;
+
+
+//range limits {knee, thigh, hip}
+//int joint_pot_low_limits[] = {160, 44, 103};
+//int joint_pot_high_limits[] = {925, 907, 712};
+#define KNEE_LIMIT 0
+#define THIGH_LIMIT 1
+#define HIP_LIMIT 2
+int potLowLimits[] = {kneePotMin + 10, thighPotMin + 10, hipPotMin + 10};
+int potHighLimits[] = {kneePotMax - 10, thighPotMax - 10, hipPotMax - 10};
+// knee extend decreases string pot, when at low limit, don't allow high_pwm_pin
+// thigh up decreases string pot, when at low limit, don't allow low_pwm_pin
+// hip back decreases string pot, when at low limit, don't allow high_pwm_pin
+bool potAtLowLimit[] = {false, false, false};
+bool potAtHighLimit[] = {false, false, false};
 
 float currentKneeAngle;
 float currentThighAngle;
@@ -304,6 +323,8 @@ for (int i = 0; i < 4; i++) {
 
      //this is to convert sensor reading into angles
      if (i==3) { //knee pot
+      potAtLowLimit[KNEE_LIMIT] = (sensor_values[i] < potLowLimits[KNEE_LIMIT]);
+      potAtHighLimit[KNEE_LIMIT] = (sensor_values[i] > potHighLimits[KNEE_LIMIT]);
       currentKneeAngle = ((sensor_values[i] - kneePotMin) / kneeSensorUnitsPerDeg) + kneeAngleMin;
       //Serial.print("Current Knee Angle: ");
       //Serial.print(currentKneeAngle);
@@ -311,6 +332,8 @@ for (int i = 0; i < 4; i++) {
      }
 
      if (i==4) { //thigh pot
+      potAtLowLimit[THIGH_LIMIT] = (sensor_values[i] < potLowLimits[THIGH_LIMIT]);
+      potAtHighLimit[THIGH_LIMIT] = (sensor_values[i] > potHighLimits[THIGH_LIMIT]);
       currentThighAngle = ((sensor_values[i] - thighPotMin) / thighSensorUnitsPerDeg) + thighAngleMin;
       //Serial.print("Current Thigh Angle: ");
       //Serial.print(currentThighAngle);
@@ -318,6 +341,8 @@ for (int i = 0; i < 4; i++) {
      }
 
      if (i==6) { //knee hip
+      potAtLowLimit[HIP_LIMIT] = (sensor_values[i] < potLowLimits[HIP_LIMIT]);
+      potAtHighLimit[HIP_LIMIT] = (sensor_values[i] > potHighLimits[HIP_LIMIT]);
       currentHipAngle = ((sensor_values[i] - hipPotMin) / hipSensorUnitsPerDeg) + hipAngleMin;
     //Serial.print("Current Hip Angle: ");
     //Serial.print(currentHipAngle);
@@ -381,6 +406,9 @@ for (int i = 0; i < 4; i++) {
   for (int i = 0; i < 3; i++) {
      
      if (deadMan == 1) {
+       // knee extend decreases string pot, when at low limit, don't allow high_pwm_pin
+       // thigh up decreases string pot, when at low limit, don't allow low_pwm_pin
+       // hip back decreases string pot, when at low limit, don't allow high_pwm_pin
        if (sensor_values[i] >= high_threshold) {
           //Serial.print("governor: ");
           //Serial.println(governor[i]);
@@ -388,6 +416,10 @@ for (int i = 0; i < 4; i++) {
           //Serial.print("mapped pwm value: ");
           //Serial.println(high_pwm_values[i]);
          high_pwm_values[i] = high_pwm_values[i] + tmp_dither_value;
+         // check if joint is at limit
+         if ((i == 0) && (potAtLowLimit[0])) high_pwm_values[i] = 0;
+         if ((i == 1) && (potAtHighLimit[0])) high_pwm_values[i] = 0;
+         if ((i == 2) && (potAtLowLimit[0])) high_pwm_values[i] = 0;
          analogWrite(high_pwm_pins[i], high_pwm_values[i]);
           //Serial.print(tmp_pwm_value);
           //Serial.println("crossed high threshold");
@@ -397,6 +429,10 @@ for (int i = 0; i < 4; i++) {
           //Serial.print("mapped pwm value: ");
           //Serial.println(low_pwm_values[i]);
          low_pwm_values[i] = low_pwm_values[i] + tmp_dither_value;
+         // check if joint is at limit
+         if ((i == 0) && (potAtHighLimit[0])) low_pwm_values[i] = 0;
+         if ((i == 1) && (potAtLowLimit[0])) low_pwm_values[i] = 0;
+         if ((i == 2) && (potAtHighLimit[0])) low_pwm_values[i] = 0;
          analogWrite(low_pwm_pins[i], low_pwm_values[i]);
           //Serial.println("crossed low threashold"); 
        }
@@ -420,7 +456,7 @@ for (int i = 0; i < 4; i++) {
   }
 
 if (since_print >= print_period) {
-        for (int i; i < size; i++) {
+        for (int i = 0; i < size; i++) {
                 Serial.print(sensorPWMpressure[include[i]]);
                 Serial.print("\t"); 
         }
