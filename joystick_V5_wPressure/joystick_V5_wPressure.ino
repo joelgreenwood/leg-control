@@ -91,6 +91,8 @@ int print_period = 100; //in ms - so 100 is priting at 10Hz
 16  hip PWM-2
 */
 
+char* print_lables[] = {"Pressure1", "Pressure2", "Pressure3", "Pressure4", "Xjoy", "Yjoy", "Zjoy", "ThighPot", "KneePot", "CompliantPot", "HipPot", "KneePWM1", "ThighPWM1", "HipPWM1", "KneePWM2", "ThighPWM2", "HipPWM2"};
+ 
 int include[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 //int include[] = {0,2,5,7,9,12,15};
 //for printing only a subset of values
@@ -248,6 +250,14 @@ void setup()
   kneeSensorUnitsPerDeg = (kneePotMax - kneePotMin) / (kneeAngleMax - kneeAngleMin);
   thighSensorUnitsPerDeg = (thighPotMax - thighPotMin) / (thighAngleMax - thighAngleMin);
   hipSensorUnitsPerDeg = (hipPotMax - hipPotMin) / (hipAngleMax - hipAngleMin);
+
+  //print lables
+  delay(3000);
+  for (int i; i < size; i++) {
+                Serial.print(print_lables[include[i]]);
+                Serial.print("\t"); 
+        }
+  Serial.println();
   
 }
 
@@ -523,18 +533,21 @@ if (since_print >= print_period) {
 }
 
 
-// if (since_print >= print_period) {
-//  for (int i = 0; i < 17; i++) {
-//   Serial.print(sensorPWMpressure[i]);
-//   Serial.print("\t"); 
-//  }
-//  since_print = 0;
-//  Serial.println();
-// }
+while (Serial.available() > 0) {
+        // do stuff with serial here if needed
+
+        //look for a carriage return - to print lables
+        if (Serial.read() == '\r') {
+                Serial.println("**************");
+                for (int i; i < size; i++) {
+                        Serial.print(print_lables[include[i]]);
+                        Serial.print("\t"); 
+                }
+                Serial.println();      
+        }
+}
  
- 
- 
- delay(1); //I have a delay here becuase I've found polling the analog pins at ~1kHz tends to mess things up.  Here we're polling at 500Hz wich is way fast enough for human reaction (joystick) times.
+delay(1); //I have a delay here becuase I've found polling the analog pins at ~1kHz tends to mess things up.  Here we're polling at 500Hz wich is way fast enough for human reaction (joystick) times.
 }
 
 //This is a simple program to make sure the driver board is not enabled if the joystick is turned off (deadMan is low)
