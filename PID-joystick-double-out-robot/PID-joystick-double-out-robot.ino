@@ -13,7 +13,7 @@ Bounce deadmanBounce = Bounce(deadman_pin, 20);
 
 #define enable_pin 2 // for the motor driver board
 
-#define joystick_pin A2 // 31 --joystick input 
+#define joystick_pin A2 // 31 --joystick input output
 #define hip_pot_pin A3 // 20 --the photo senstive resistor input - pretending to be the string pot 
 //#define photores_reverse_pin A4 // For this test I need a second sensor for the second LED.  This will change when both forward and reverse are acting on the the same sensor (string pot).
 #define forward_hip_pin 9 // output pin for forward direction - in this case an LED but next it will be the valve
@@ -24,17 +24,20 @@ Bounce deadmanBounce = Bounce(deadman_pin, 20);
 #define N_AVG 8
 #define ADC_RES 12 //bits of resolution for ADC
 int ADC_num_of_bytes; // (pow(2, ADC_RES) - 1) --holds the (zero indexed) number of bytes for the ADC input 
-#define max_hip_sensor_value 4000 // This is the maximum read of the string pot - in this case the photo resistor.  I will use the same numbers for forward and reverse to make it easier to convert to the string pot later.  
+#define max_hip_sensor_value ADC_num_of_bytes // This is the maximum read of the string pot - in this case the photo resistor.  I will use the same numbers for forward and reverse to make it easier to convert to the string pot later.  
 #define min_hip_sensor_value 0 // This is the minimum read of the string pot - in this case the photo resistor. 
 
 
 //#define max_sensor_value_reverse 3800 // This is the maximum read of the string pot - in this case the photo resistor.  I will use the same numbers for forward and reverse to make it easier to convert to the string pot later.  
 //#define min_sensor_value_reverse 500// This is the minimum read of the string pot - in this case the photo resistor. 
 int half_bytes;
-#define setpoint_deadband 1 //This is the difference accaptable between the setpoint (joystick) position and the input (sensor readout).
-#define PWM_deadband 0 //number of bytes required before there is a positive response from the valve.  This will be relative to the bit rate.
-#define max_PWM_output 1000 // this scales the PWM output (in bytes) so the PID output doesn't wirte a value higher than we want
+#define setpoint_deadband 10 //This is the difference accaptable between the setpoint (joystick) position and the input (sensor readout).
+//#define PWM_deadband 0 //number of bytes required before there is a positive response from the valve.  This will be relative to the bit rate.
+#define PWM_deadband_percent 0 //percent of PWM range needed to crack the valve
+long PWM_deadband = 0;
+#define pwm_govenor 100 //percent of maximum output
 int pwm_output = 0;
+unsigned long max_PWM_output; // This caps the PWM output so we don't blow things up. Today... 
 
 #define DAC_PWM_RES 12 // bits of resolution for PWM output
 int DAC_num_of_bytes; // (pow(2, DAC_PWM_RES) - 1)  --holds the (zero indexed) number of bytes for the PWM output
@@ -49,7 +52,7 @@ ADC *adc = new ADC(); // adc object
 double Setpoint, Input, Output;
 
 //Specify the links and initial tuning parameters
-double Kp=0.5, Ki=0, Kd=0;
+double Kp=1, Ki=0, Kd=0;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 const int sampleRate = 1;
@@ -64,6 +67,9 @@ void setup()
   ADC_num_of_bytes = pow(2, ADC_RES) - 1;
   DAC_num_of_bytes = pow(2, DAC_PWM_RES) - 1;
   half_bytes = ADC_num_of_bytes/2;
+
+  max_PWM_output = ADC_num_of_bytes * ((float)pwm_govenor/100);
+  PWM_deadband = ADC_num_of_bytes * ((float)PWM_deadband_percent/100);
 
   pinMode(deadman_pin, INPUT);
   pinMode(enable_pin, OUTPUT);
@@ -100,7 +106,7 @@ void loop()
 
   hip_pot_value = adc->analogRead(hip_pot_pin);
 
-  
+
 
   Input = map(hip_pot_value, min_hip_sensor_value, max_hip_sensor_value, 0, ADC_num_of_bytes);  
 
@@ -121,6 +127,7 @@ void loop()
     else {
       analogWrite(forward_hip_pin, 0);
       analogWrite(reverse_hip_pin, 0);
+      pwm_output = 0;
     }
   }
   else {
@@ -131,15 +138,22 @@ void loop()
 
   now = millis();
   if(now - lastMessage > serialPing) {
-        Serial.print("hipPot: ");
-        Serial.print((adc->analogRead(hip_pot_pin)));
-        Serial.print(" Setpoint: ");
+        //Serial.print("hipPot: ");
+        //Serial.print((adc->analogRead(hip_pot_pin)));
+        Serial.print("Setpoint:");
+        Serial.print("\t");
         Serial.print(Setpoint);
-        Serial.print(" Input: ");
+        Serial.print("\t");
+        Serial.print("Input:");
+        Serial.print("\t");
         Serial.print(Input);
-        Serial.print(" Output: ");
+        Serial.print("\t");
+        Serial.print("Output:");
+        Serial.print("\t");
         Serial.print(Output);
-        Serial.print("PWM: ");
+        Serial.print("\t");
+        Serial.print("PWM:");
+        Serial.print("\t");
         Serial.print(pwm_output);
         Serial.print("\n");
         if (Serial.available() > 0) {

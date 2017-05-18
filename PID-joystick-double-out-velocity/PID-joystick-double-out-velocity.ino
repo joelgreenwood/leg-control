@@ -23,8 +23,9 @@ unsigned long last_time = 0;
 unsigned long now = 0;
 
 #define hip_min_velocity 0
-#define hip_max_velocity 3000 // sensor units per second 
+#define hip_max_velocity 4000 // sensor units per second 
 unsigned long hip_max_velocity_microS;
+float tempVelocity;
 
 #define deadman_pin 5 // 25 on new board
 Bounce deadmanBounce = Bounce(deadman_pin, 20);
@@ -49,10 +50,13 @@ int ADC_num_of_bytes; // (pow(2, ADC_RES) - 1) --holds the (zero indexed) number
 //#define max_sensor_value_reverse 3800 // This is the maximum read of the string pot - in this case the photo resistor.  I will use the same numbers for forward and reverse to make it easier to convert to the string pot later.  
 //#define min_sensor_value_reverse 500// This is the minimum read of the string pot - in this case the photo resistor. 
 
-#define setpoint_deadband 0 //This is the difference accaptable between the setpoint (joystick) position and the input (sensor readout).
-#define PWM_deadband 0 //number of bytes required before there is a positive response from the valve.  This will be relative to the bit rate.
-#define max_PWM_output ADC_num_of_bytes // this scales the PWM output (in bytes) so the PID output doesn't wirte a value higher than we want
+#define setpoint_deadband 50 //This is the difference accaptable between the setpoint (joystick) position and the input (sensor readout).
+//#define PWM_deadband 0 //number of bytes required before there is a positive response from the valve.  This will be relative to the bit rate.
+#define PWM_deadband_percent 1 //percent of PWM range needed to crack the valve
+long PWM_deadband = 0;
 int pwm_output = 0;
+unsigned long max_PWM_output; // This caps the PWM output so we don't blow things up. Today... 
+#define pwm_govenor 100 //percent of maximum output
 
 #define DAC_PWM_RES 12 // bits of resolution for PWM output
 int DAC_num_of_bytes; // (pow(2, DAC_PWM_RES) - 1)  --holds the (zero indexed) number of bytes for the PWM output
@@ -77,13 +81,16 @@ unsigned long lastMessage = 0;
 
 void setup()
 {
-  hip_max_velocity_microS = hip_max_velocity * 1000000;
+  //hip_max_velocity_microS = hip_max_velocity * 1000000;
   hipVelocityAverage.clear();
 
   analogWriteResolution(DAC_PWM_RES);
   analogWriteFrequency(9, 11718);
   ADC_num_of_bytes = pow(2, ADC_RES) - 1;
   DAC_num_of_bytes = pow(2, DAC_PWM_RES) - 1;
+
+  max_PWM_output = ADC_num_of_bytes * ((float)pwm_govenor/100);
+  PWM_deadband = ADC_num_of_bytes * ((float)PWM_deadband_percent/100);
 
   pinMode(deadman_pin, INPUT);
   pinMode(enable_pin, OUTPUT);
@@ -114,6 +121,7 @@ void setup()
 
 void loop()
 {
+  delay(1);
   deadmanBounce.update(); //update the deadman
 
   hipSensorAverage.addValue(adc->analogRead(hip_pot_pin));
@@ -123,9 +131,25 @@ void loop()
     now = micros();
     lastSensorReading = hip_pot_value;
     hip_pot_value = hipSensorAverage.getAverage();
-    float tempVelocity = 1000000 * (hip_pot_value - lastSensorReading) / (now - last_time);
+    int pot_change = hip_pot_value - lastSensorReading;
+    // Serial.print("pot_change:");
+    // Serial.print("\t");
+    // Serial.println(pot_change);
+    //Serial.print("\t");
+    // float tempVelocity = (hip_pot_value - lastSensorReading) / (now - last_time);
+    // Serial.print("\t");
+    // Serial.print("tmpVel:");
+    // Serial.print("\t");
+    // Serial.println(tempVelocity * 1000000);
+    if (pot_change == 0) {
+      tempVelocity = 0;
+    }
+    else {
+      tempVelocity = (hip_pot_value - lastSensorReading) / (now - last_time);
+    }
+    
     hipVelocityAverage.addValue(tempVelocity);
-    currentVelocity = hipVelocityAverage.getAverage();
+    currentVelocity = hipVelocityAverage.getAverage() * 1000000;
     Setpoint = map(adc->analogRead(joystick_pin), 0, ADC_num_of_bytes, -hip_max_velocity, hip_max_velocity);
     Input = map(currentVelocity, -hip_max_velocity, hip_max_velocity, -ADC_num_of_bytes, ADC_num_of_bytes);
     myPID.Compute();
@@ -157,13 +181,18 @@ void loop()
 
   now_ms = millis();
   if(now_ms - lastMessage > serialPing) {
-        Serial.print("velocity:");
+        Serial.print("Velocity:");
         Serial.print("\t");
-        Serial.print(hipVelocityAverage.getAverage(), 2);
+        Serial.print(hipVelocityAverage.getAverage() * 1000000);
         Serial.print("\t");
-        // Serial.print("micros:");
+        Serial.print("sensor:");
+        Serial.print("\t");
+        Serial.print(adc->analogRead(hip_pot_pin));
+        Serial.print("\t");
+        // Serial.print("millis:");
         // Serial.print("\t");
-        // Serial.print(micros());
+        // Serial.print(micros()/1000);
+        // Serial.print("\t");
         Serial.print("Setpoint: ");
         Serial.print(Setpoint);
         Serial.print("\t");
@@ -173,9 +202,9 @@ void loop()
         Serial.print("Output: ");
         Serial.print(Output);
         Serial.print("\t");
-        // Serial.print("hipPot: ");
-        // Serial.print("\t");
-        // Serial.print(hip_pot_value);
+        Serial.print("PWM: ");
+        Serial.print("\t");
+        Serial.print(pwm_output);
         Serial.print("\n");
         if (Serial.available() > 0) {
                 for (int x = 0; x < 4; x++) {
