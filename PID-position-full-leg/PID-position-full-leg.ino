@@ -9,21 +9,33 @@ attempting to get joystick and directional control (forwards and reverse) workin
 
 //#define DEBUG 1
 
+//**********  Major pin changes for joint and test changes
 #define deadman_pin 25 // 5 on test, 25 on bot - Stokes board
-Bounce deadmanBounce = Bounce(deadman_pin, 20);
-
-//*********************************
-// Major pin changes for joint and test changes
-#define enable_pin 2 // for the motor driver board
-#define joystick_pin 31 // A2 for test - 31 for bot --joystick input output
+#define enable_pin 8 // for thigh and knee
+#define enable_pin 2 // for hip the motor driver board
+#define joystick_pin_X 31 // A2 for test - 31 for bot --joystick input output
+#define joystick_pin_Y 14
+#define joystick_pin_Z 10
 #define hip_pot_pin 20 // A3 for test, 20 for bot --the photo sensitive resistor input - pretending to be the string pot 
+#define thigh_pot_pin 15
+#define knee_pot_pin 17
+#define calf_pot_pin 16
 #define forward_hip_pin 9 // output pin for forward direction - in this case an LED but next it will be the valve
 #define reverse_hip_pin 10 // output pin for reverse 
+#define down_thigh_pin 3
+#define up_thigh_pin 4
+#define out_knee_pin 5
+#define in_knee_pin 6
+//********** Sensor min and max values *****************
 #define max_hip_sensor_value 2896 // This is the maximum read of the string pot - in this case the photo resistor.  I will use the same numbers for forward and reverse to make it easier to convert to the string pot later.  
 #define min_hip_sensor_value 376 // This is the minimum read of the string pot - in this case the photo resistor. 
-//*********************************
+#define max_thigh_sensor_value 3668 //this is all the way down or extended
+#define min_thigh_sensor_value 136 //this is fully reacted/up or in deadbug
+#define max_knee_sensor_value 3736 //this is fully retracted 
+#define min_knee_sensor_value 592 //this is fully extended
+//********** Deadband and Max PWM output
 #define setpoint_deadband 0 //This is the difference acceptable between the setpoint (joystick) position and the input (sensor readout).
-#define PWM_deadband_percent 30 //percent of PWM range needed to crack the valve
+#define PWM_deadband_percent 30 //percent of PWM range needed to crack the valve -- for now this is one number but I may break this out into individual joints later
 #define pwm_govenor 100 //percent of maximum output
 
 //setup for ADC averaging
@@ -32,20 +44,24 @@ Bounce deadmanBounce = Bounce(deadman_pin, 20);
 #define DAC_PWM_RES 12 // bits of resolution for PWM output
 ADC *adc = new ADC(); // adc object
 
-int ADC_num_of_bytes; // (pow(2, ADC_RES) - 1) --holds the (zero indexed) number of bytes for the ADC input 
-int half_bytes;
-long PWM_deadband = 0;
+long ADC_num_of_bytes; // (pow(2, ADC_RES) - 1) --holds the (zero indexed) number of bytes for the ADC input 
+long DAC_num_of_bytes; // (pow(2, DAC_PWM_RES) - 1)  --holds the (zero indexed) number of bytes for the PWM output
+long PWM_deadband;
 int pwm_output = 0;
 unsigned long max_PWM_output; // This caps the PWM output so we don't blow things up. Today... 
-int DAC_num_of_bytes; // (pow(2, DAC_PWM_RES) - 1)  --holds the (zero indexed) number of bytes for the PWM output
 double hip_pot_value; // reading from the photo resistor
 double joystick_val; // value of the joystick
+
+Bounce deadmanBounce = Bounce(deadman_pin, 20); //debounce for the deadman pin
 
 //PID variables - Define Variables we'll be connecting to
 double Setpoint, Input, Output;
 //Specify the links and initial tuning parameters
-double Kp=1, Ki=0, Kd=0;
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+double Kp=1, Ki=0, Kd=0;  //for now I'm going with all the same values but I'm sure I'll need to break it out in the future
+PID hipPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+PID thighPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+PID kneePID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
 const int sampleRate = 1;
 const int serialPing = 100; //interval in ms at which serial is sent and read
 unsigned long now = 0;
@@ -58,7 +74,6 @@ void setup()
   analogWriteFrequency(9, 11718); // 11718
   ADC_num_of_bytes = pow(2, ADC_RES) - 1;
   DAC_num_of_bytes = pow(2, DAC_PWM_RES) - 1;
-  half_bytes = ADC_num_of_bytes/2;
 
   max_PWM_output = ADC_num_of_bytes * ((float)pwm_govenor/100);
   PWM_deadband = ADC_num_of_bytes * ((float)PWM_deadband_percent/100);
