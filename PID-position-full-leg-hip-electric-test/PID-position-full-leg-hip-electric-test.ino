@@ -35,8 +35,15 @@ attempting to get joystick and directional control (forwards and reverse) workin
 #define min_knee_sensor_value 592 //this is fully extended
 //********** Deadband and Max PWM output
 #define setpoint_deadband 0 //This is the difference acceptable between the setpoint (joystick) position and the input (sensor readout).
-#define PWM_deadband_percent 35 //percent of PWM range needed to crack the valve -- for now this is one number but I may break this out into individual joints later
+#define PWM_deadband_percent_hipFwd 35 //This is cylinder extend on the robot -- currently on the electric rig this is lowering the weight
+#define PWM_deadband_percent_hipRev 35 //percent of PWM range needed to crack the valve -- for now this is one number but I may break this out into individual joints later
 #define pwm_govenor 100 //percent of maximum output
+
+#define beadcrumb_time_interval 100 //in ms
+elapsedMillis since_crumb_update;
+#define breadcrub_spacing 40 //this is in sensor units so for 12 bit 1 up to 4096
+int last_Setpoint;
+int increasing = 1;
 
 //setup for ADC averaging
 #define N_AVG 8
@@ -46,7 +53,8 @@ ADC *adc = new ADC(); // adc object
 
 long ADC_num_of_bytes; // (pow(2, ADC_RES) - 1) --holds the (zero indexed) number of bytes for the ADC input 
 long DAC_num_of_bytes; // (pow(2, DAC_PWM_RES) - 1)  --holds the (zero indexed) number of bytes for the PWM output
-long PWM_deadband;
+long PWM_deadband_hipFwd;
+long PWM_deadband_hipRev;
 int pwm_output = 0;
 unsigned long max_PWM_output; // This caps the PWM output so we don't blow things up. Today... 
 double hip_pot_value; // reading from the photo resistor
@@ -70,9 +78,35 @@ const int serialPing = 100; //interval in ms at which serial is sent and read
 unsigned long now = 0;
 unsigned long lastMessage = 0;
 
+//***sine block
+  elapsedMillis sinceStart;
+  float sensor_range;
+  float percent_of_travel = 10;
+  float desired_percent_of_range;
+  float mid_sensor;
+  float roundTrip_Sec = 10;  //This is the time in seconds for one round trip (2*pi*r) or 360 deg.
+  float frequencyHz; //frequency in Hz for how long it takes to go through one cycle
+  float circularFrequency; // This is omega - 2*pi
+  const float pi = 3.14159265359;
+//***End sine block
+
+int getSensorAtTime(int _time) { //time is in ms
+  return mid_sensor + (mid_sensor*sin(circularFrequency*((float)_time/1000)));
+}
+
 void setup()
 {
   Serial.begin(9600);
+
+  //***block for sine wave
+    sensor_range = max_hip_sensor_value - min_hip_sensor_value;
+    frequencyHz = 1/roundTrip_Sec;
+    circularFrequency = 2*pi*frequencyHz;
+    //desired_percent_of_range = (float)sensor_range * (percent_of_travel/100);
+    mid_sensor = sensor_range/2;
+  //***end sine wave block
+
+
   analogWriteResolution(DAC_PWM_RES);
   analogWriteFrequency(9, 11718); // 11718
   analogWriteFrequency(3, 11718); // 11718
@@ -88,7 +122,8 @@ void setup()
   DAC_num_of_bytes = pow(2, DAC_PWM_RES) - 1;
 
   max_PWM_output = ADC_num_of_bytes * ((float)pwm_govenor/100);
-  PWM_deadband = ADC_num_of_bytes * ((float)PWM_deadband_percent/100);
+  PWM_deadband_hipFwd = ADC_num_of_bytes * ((float)PWM_deadband_percent_hipFwd/100);
+  PWM_deadband_hipRev = ADC_num_of_bytes * ((float)PWM_deadband_percent_hipRev/100);
 
   pinMode(deadman_pin, INPUT);
   pinMode(enable_pin_hip, OUTPUT);
@@ -123,14 +158,51 @@ void setup()
   delay(2000);
   Serial.println("Begin");
   lastMessage = millis();
+  last_Setpoint = adc->analogRead(hip_pot_pin);  //This will be a bit off (not scaled right) but it'll start the increment loop close to where it is now
 }
 
 void loop()
 {
   deadmanBounce.update(); //update the deadman
 
-  //reverse mapping for knee
-  Setpoint = map(adc->analogRead(knee_pot_pin),  0, ADC_num_of_bytes, ADC_num_of_bytes, 0); //read in setoint from joystick 
+  //******************  Setpoint input section
+  // Choose one method for selecting a setpoint
+
+  //***slider of joystick input
+    //Setpoint = map(adc->analogRead(knee_pot_pin),  0, ADC_num_of_bytes, ADC_num_of_bytes, 0); //read in setoint from joystick 
+  //***End slider/joystick input
+
+  //***incrementing a fixed interval in a fixed time
+    // if (since_crumb_update >= beadcrumb_time_interval) {
+      
+    //   last_Setpoint = Setpoint;
+    //   since_crumb_update = 0;
+
+    //   if (increasing == 1) {
+    //     Setpoint = last_Setpoint + breadcrub_spacing;
+    //     if (Setpoint >= ADC_num_of_bytes) {
+    //       Setpoint = last_Setpoint;
+    //       increasing = 0;
+    //     }
+    //   }
+    //   if (increasing == 0) {
+    //     Setpoint = last_Setpoint - breadcrub_spacing;
+    //     if (Setpoint <= 0) {
+    //       Setpoint = last_Setpoint + breadcrub_spacing;
+    //       increasing = 1;
+    //     }
+    //   }
+    // }
+  //***End incrementing along a line
+  
+  //***Sine wave along percent of travel
+    if (since_crumb_update >= beadcrumb_time_interval) {
+      since_crumb_update = 0;
+      Setpoint = map(getSensorAtTime(sinceStart), 0,  sensor_range, 0, ADC_num_of_bytes) * (percent_of_travel/100);
+    }
+  //***End Sine wave  
+
+  //******************  End setpoint
 
   hip_pot_value = adc->analogRead(hip_pot_pin);  //read the position of the joint sensor
   //thigh_pot_value = adc->analogRead(thigh_pot_pin); 
@@ -152,7 +224,7 @@ void loop()
     digitalWrite(enable_pin_hip, HIGH); //enable the driver board
     //digitalWrite(enable_pin_thigh_knee, HIGH); //enable the driver board
     if (Output > setpoint_deadband) { //If the output is positive then drive the joint forward or out
-      pwm_output = map(Output, 0, ADC_num_of_bytes, PWM_deadband, max_PWM_output); // Map the output to the range of the PWM output - deadband to max (either desired or set)
+      pwm_output = map(Output, 0, ADC_num_of_bytes, PWM_deadband_hipFwd, max_PWM_output); // Map the output to the range of the PWM output - deadband to max (either desired or set)
        analogWrite(forward_hip_pin, pwm_output); //write the command 
        analogWrite(reverse_hip_pin, 0); //make sure the other solenoid is off
       //Serial.println("extending knee");
@@ -160,7 +232,7 @@ void loop()
       // analogWrite(out_knee_pin, 0); //make sure the other solenoid is off
     }
     else if (Output < -setpoint_deadband) { //If the output is negative then drive the joint in reverse or in.
-      pwm_output = map(-Output, 0, ADC_num_of_bytes, PWM_deadband, max_PWM_output); //Invert the output to get rid of the negative and map it to the PWM range.
+      pwm_output = map(-Output, 0, ADC_num_of_bytes, PWM_deadband_hipRev, max_PWM_output); //Invert the output to get rid of the negative and map it to the PWM range.
        analogWrite(reverse_hip_pin, pwm_output);  //write it
        analogWrite(forward_hip_pin, 0); //turn off the other valve
       //Serial.println("retracting knee");
@@ -205,9 +277,10 @@ void loop()
     Serial.print("\t");
     Serial.print(Ki);
     Serial.print("\t");
-    Serial.print("PWM_deadband_percent:");
-    Serial.print(PWM_deadband_percent);
-    //Serial.print("\t");
+    Serial.print("deadband-FWD,REV:");
+    Serial.print(PWM_deadband_percent_hipFwd);
+    Serial.print("\t");
+    Serial.print(PWM_deadband_percent_hipRev);
 
     // Serial.print("Output:");
     // Serial.print("\t");
