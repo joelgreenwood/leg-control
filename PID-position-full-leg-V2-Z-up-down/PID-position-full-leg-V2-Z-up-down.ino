@@ -9,9 +9,9 @@ attempting to get joystick and directional control (forwards and reverse) workin
 #include <legControl.h>
 
 //#define FAKE_SENSORS 1
-//#define PRINT_SENSORS 1
-#define PRINT_SETPOINTS 1
-#define PRINT_INPUTS 1
+#define PRINT_SENSORS 1
+//#define PRINT_SETPOINTS 1
+//#define PRINT_INPUTS 1
 
 
 //**********  Major pin changes for joint and test changes
@@ -560,9 +560,9 @@ void loop()
                 #ifdef FAKE_SENSORS
                         Serial.print(sensors[0]);
                         Serial.print("\t");
-                        Serial.print(sensors[0]);
+                        Serial.print(sensors[1]);
                         Serial.print("\t");
-                        Serial.print(sensors[0]);
+                        Serial.print(sensors[2]);
                 #endif
 
                 #ifndef FAKE_SENSORS      
